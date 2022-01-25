@@ -35,7 +35,7 @@ return [
             'callbacks' => [
                 Event::ON_HAND_SHAKE => [Hyperf\WebSocketServer\Server::class, 'onHandShake'],
                 Event::ON_MESSAGE => [Hyperf\WebSocketServer\Server::class, 'onMessage'],
-                Event::ON_CLOSE => [App\Websocket\Controllers\GameController::class, 'onClose'],
+                Event::ON_CLOSE => [App\Websocket\Controllers\UserController::class, 'onClose'],
                 // Event::ON_CLOSE => [Hyperf\WebSocketServer\Server::class, 'onClose'],
             ],
         ],

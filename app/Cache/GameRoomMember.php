@@ -19,16 +19,16 @@ class GameRoomMember extends HashGroupRedis
      * @param string $roomNumber
      * @param string $username
      * @param int $isOwner
-     * @param int $ready
+     * @param int $isReady
      * @return void
      */
-    public function addMember(string $roomNumber, string $username, int $isOwner = 0, int $ready = 0)
+    public function addMember(string $roomNumber, string $username, int $isOwner = 0, int $isReady = 0)
     {
         $this->add($roomNumber, $username, json_encode([
-            'ready'            => $ready,
-            'username'         => $username,
-            'is_owner'         => $isOwner,
-            'join_time'        => Carbon::now(),
+            'username'    => $username,
+            'is_owner'    => $isOwner,
+            'is_ready'    => $isReady,
+            'join_time'   => Carbon::now(),
             'blocks'      => [],
             'block_index' => 0,
         ]));
@@ -190,7 +190,7 @@ class GameRoomMember extends HashGroupRedis
     public function setReadyStatus(string $roomNumber, string $username, int $readyStatus)
     {
         $info = $this->getMemberInfo($roomNumber, $username);
-        $info['ready'] = $readyStatus;
+        $info['is_ready'] = $readyStatus;
 
         $this->add($roomNumber, $username, json_encode($info));
 

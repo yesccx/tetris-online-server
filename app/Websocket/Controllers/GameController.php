@@ -11,7 +11,6 @@ use App\Cache\OnlineMember;
 use App\Cache\SocketMember;
 use App\Traits\WebsocketResponse;
 use Carbon\Carbon;
-use Hyperf\Contract\OnCloseInterface;
 use Hyperf\SocketIOServer\Annotation\Event;
 use Hyperf\SocketIOServer\Annotation\SocketIONamespace;
 use Hyperf\SocketIOServer\BaseNamespace;
@@ -20,32 +19,9 @@ use Hyperf\SocketIOServer\Socket;
 /**
  * @SocketIONamespace("/game")
  */
-class GameController extends BaseNamespace implements OnCloseInterface
+class GameController extends BaseNamespace
 {
     use WebsocketResponse;
-
-    /**
-     * 用户登录
-     *
-     * @Event("login")
-     * @param Socket $socket
-     * @param array $data
-     */
-    public function login(Socket $socket, $data = [])
-    {
-        $username = $data['username'] ?? '';
-        $fd = $socket->getFd();
-
-        if (empty($username)) {
-            return $this->responseError('参数错误');
-        } else if (OnlineMember::make()->has($username)) {
-            return $this->responseError('用户名已存在');
-        }
-
-        SocketMember::make()->login((string) $fd, $username);
-
-        return $this->responseSuccess();
-    }
 
     /**
      * 创建房间
@@ -118,6 +94,16 @@ class GameController extends BaseNamespace implements OnCloseInterface
         }
 
         $info = GameRoom::make()->getInfo($currentRoom);
+        if (empty($info['number'])) {
+            return $this->responseError('房间已解散');
+        }
+
+        // 当前玩家信息
+        $info['userinfo'] = GameRoomMember::make()->getMemberInfo($info['number'], $username);
+
+        // 房间成员信息
+        $info['members'] = GameRoomMember::make()->getMemberList($info['number']);
+
         return $this->responseData($info);
     }
 
@@ -282,7 +268,7 @@ class GameController extends BaseNamespace implements OnCloseInterface
         // 判断是否有玩家未准备
         $members = $roomMemberSrv->getMemberList($currentRoom);
         if (!collect($members)->every(function ($member) {
-            return !empty($member['ready']);
+            return !empty($member['is_ready']);
         })) {
             return $this->responseError('有玩家未准备！');
         }
@@ -327,26 +313,6 @@ class GameController extends BaseNamespace implements OnCloseInterface
         $roomMemberSrv->setGameData($currentRoom, $username, $data['block_index'], $data['blocks'], $data['cur']);
 
         return $this->responseSuccess();
-    }
-
-    /**
-     * websocket 关闭事件
-     */
-    public function onClose($server, int $fd, int $reactorId): void
-    {
-        $this->logout($server, $fd, $reactorId);
-        di()->get(\Hyperf\WebSocketServer\Server::class)->onClose($server, $fd, $reactorId);
-    }
-
-    /**
-     * 退出登录
-     *
-     * @return void
-     */
-    protected function logout($server, int $fd, int $reactorId)
-    {
-        SocketMember::make()->logout((string) $fd);
-        stdout_log()->info('退出登录');
     }
 
 }

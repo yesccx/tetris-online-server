@@ -21,6 +21,7 @@ class SocketMember extends HashRedis
      */
     public function login(string $fd, string $username)
     {
+        $this->logout($fd);
         OnlineMember::make()->login($fd, $username);
         $this->updateInfo($fd, [
             'username' => $username,
