@@ -48,7 +48,6 @@ class UserController extends BaseNamespace implements OnCloseInterface
      *
      * @Event("logout")
      * @param Socket $socket
-     * @param array $data
      */
     public function logout(Socket $socket)
     {

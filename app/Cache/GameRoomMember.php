@@ -25,12 +25,19 @@ class GameRoomMember extends HashGroupRedis
     public function addMember(string $roomNumber, string $username, int $isOwner = 0, int $isReady = 0)
     {
         $this->add($roomNumber, $username, json_encode([
-            'username'    => $username,
-            'is_owner'    => $isOwner,
-            'is_ready'    => $isReady,
-            'join_time'   => Carbon::now(),
-            'blocks'      => [],
-            'block_index' => 0,
+            'username'          => $username,
+            'join_time'         => Carbon::now(),
+            'is_owner'          => $isOwner,
+            'is_ready'          => $isReady,
+            'is_over'           => 0,
+            'points'            => 0,
+            'block_index'       => 0,
+            'clear_lines'       => 0,
+            'cur'               => null,
+            'speed_run'         => 1,
+            'matrix'            => null,
+            'discharge_buffers' => 0,
+            'fill_buffers'      => 0,
         ]));
 
         // 房间人数加1
@@ -45,7 +52,7 @@ class GameRoomMember extends HashGroupRedis
         // 通知所有房间内的用户
         $socketIO->of('/game')->to($roomNumber)->emit('join-room', $username);
 
-        // 将当前用户加入到房间
+        // 将当前用户加入到socket房间
         $userFd = OnlineMember::make()->getFd($username);
         $userSid = (string) di()->get(SidProviderInterface::class)->getSid((int) $userFd);
         $socketIO->of('/game')->getAdapter()->add($userSid, $roomNumber);
@@ -76,12 +83,14 @@ class GameRoomMember extends HashGroupRedis
         if ($roomInfo['current_count'] == 0 || $roomInfo['owner'] == $username) {
             GameRoom::make()->close($roomInfo['number']);
         } else {
+            // 广播通知有人离开房间
             di()->get(\Hyperf\SocketIOServer\SocketIO::class)->of('/game')->to($roomNumber)->emit('leave-room', $username);
         }
 
         /** @var \Hyperf\SocketIOServer\SocketIO $socketIO */
         $socketIO = di()->get(\Hyperf\SocketIOServer\SocketIO::class);
 
+        // 将当前用户移出socket房间
         $userFd = OnlineMember::make()->getFd($username);
         $userSid = (string) di()->get(SidProviderInterface::class)->getSid((int) $userFd);
         $socketIO->of('/game')->getAdapter()->del($userSid, $roomNumber);
@@ -202,23 +211,30 @@ class GameRoomMember extends HashGroupRedis
     }
 
     /**
-     * 设置游戏中的数据
+     * 更新游戏中的数据
      *
      * @param string $roomNumber 房间号
      * @param string $username 用户名
-     * @param int $blockIndex 当前所在方块索引
-     * @param array $blocks 方块矩阵
-     * @param array $cur 当前方块
+     * @param array $data 数据
      * @return void
      */
-    public function setGameData(string $roomNumber, string $username, int $blockIndex, array $blocks, $cur)
+    public function updateGameData(string $roomNumber, string $username, array $data)
     {
         $info = $this->getMemberInfo($roomNumber, $username);
-        $info['blocks'] = $blocks;
-        $info['block_index'] = $blockIndex;
-        $info['cur'] = $cur;
+        $info['points'] = $data['points'] ?? $info['points'];
+        $info['is_ready'] = $data['is_ready'] ?? $info['is_ready'];
+        $info['is_over'] = $data['is_over'] ?? $info['is_over'];
+        $info['block_index'] = $data['block_index'] ?? $info['block_index'];
+        $info['cur'] = $data['cur'] ?? $info['cur'];
+        $info['speed_run'] = $data['speed_run'] ?? $info['speed_run'];
+        $info['clear_lines'] = $data['clear_lines'] ?? $info['clear_lines'];
+        $info['matrix'] = $data['matrix'] ?? $info['matrix'];
+        $info['discharge_buffers'] = $data['discharge_buffers'] ?? $info['discharge_buffers'];
+        $info['fill_buffers'] = $data['fill_buffers'] ?? $info['fill_buffers'];
 
         $this->add($roomNumber, $username, json_encode($info));
+
+        // FIXME: 暂时不需要手动通知，房间内的玩家会定时手动获取
 
         /** @var \Hyperf\SocketIOServer\SocketIO $socketIO */
         // $socketIO = di()->get(\Hyperf\SocketIOServer\SocketIO::class);

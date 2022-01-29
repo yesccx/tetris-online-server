@@ -92,6 +92,8 @@ class SocketMember extends HashRedis
     public function logout(string $fd)
     {
         $username = $this->getUserName($fd);
+
+        // 从所在房间内移除
         if (!empty($username)) {
             GameRoomMember::make()->leaveMemberCurrentRoom($username);
             OnlineMember::make()->logout($username);

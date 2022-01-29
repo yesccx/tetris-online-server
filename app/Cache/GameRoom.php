@@ -53,6 +53,26 @@ class GameRoom extends HashRedis
     }
 
     /**
+     * 更新房间暂停状态
+     *
+     * @param string $roomNumber
+     * @param int $status
+     * @return array
+     */
+    public function updatePauseStatus(string $roomNumber, int $status = 0)
+    {
+        $info = $this->getInfo($roomNumber);
+        if (empty($info)) {
+            return false;
+        }
+
+        $info['pause'] = $status;
+        $this->updateInfo($roomNumber, $info);
+
+        return $info;
+    }
+
+    /**
      * 更新房间方块
      *
      * @param string $roomNumber

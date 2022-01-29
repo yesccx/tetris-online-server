@@ -55,7 +55,10 @@ class GameController extends BaseNamespace
             'owner'         => $username,
             'format_number' => (string) 'A' . str_pad($roomNumber, 5, '0', STR_PAD_LEFT),
             'status'        => 0,
+            'pause'         => 0,
             'blocks'        => [],
+            'speed_start'   => 1,
+            'start_lines'   => 0,
         ];
         GameRoom::make()->create($roomNumber, $username, $roomInfo);
 
@@ -101,7 +104,7 @@ class GameController extends BaseNamespace
         // 当前玩家信息
         $info['userinfo'] = GameRoomMember::make()->getMemberInfo($info['number'], $username);
 
-        // 房间成员信息
+        // 房间成员(玩家)
         $info['members'] = GameRoomMember::make()->getMemberList($info['number']);
 
         return $this->responseData($info);
@@ -151,6 +154,8 @@ class GameController extends BaseNamespace
             return $this->responseError('房间不存在');
         } else if ($roomInfo['current_count'] == $roomInfo['max_count']) {
             return $this->responseError('房间人数已满');
+        } else if ($roomInfo['status'] == 1) {
+            return $this->responseError('房间已开始');
         }
 
         // 退出之前的房间
@@ -275,13 +280,20 @@ class GameController extends BaseNamespace
 
         // 预告生成方块集
         $blocks = [];
+        $blockMap = [
+            1 => 'I', 2 => 'L', 3 => 'J',
+            4 => 'Z', 5 => 'S', 6 => 'O', 7 => 'T',
+        ];
         for ($i = 1; $i <= 10000; $i++) {
-            $blocks[] = rand(1, 7);
+            $blocks[] = $blockMap[rand(1, 7)];
         }
         $gameRoomSrv->updateBlocks($currentRoom, $blocks);
 
         // 更新房间状态
         $roomInfo = $gameRoomSrv->updateStatus($currentRoom, 1);
+        if (empty($roomInfo)) {
+            return $this->responseError('游戏开始失败');
+        }
 
         /** @var \Hyperf\SocketIOServer\SocketIO $socketIO */
         $socketIO = di()->get(\Hyperf\SocketIOServer\SocketIO::class);
@@ -310,7 +322,72 @@ class GameController extends BaseNamespace
             return $this->responseError('当前不在房间内！');
         }
 
-        $roomMemberSrv->setGameData($currentRoom, $username, $data['block_index'], $data['blocks'], $data['cur']);
+        $roomMemberSrv->updateGameData($currentRoom, $username, $data);
+
+        return $this->responseSuccess();
+    }
+
+    /**
+     * 游戏暂停
+     *
+     * @Event("game-pause")
+     */
+    public function gamePause(Socket $socket)
+    {
+        $fd = (string) $socket->getFd();
+        $username = SocketMember::make()->getUserName($fd);
+
+        // 获取当前所在房间
+        $roomMemberSrv = GameRoomMember::make();
+        $currentRoom = $roomMemberSrv->getMemberCurrentRoom($username);
+        if (empty($currentRoom)) {
+            return $this->responseError('当前不在房间内！');
+        }
+
+        // 更新房间暂停状态
+        $gameRoomSrv = GameRoom::make();
+        $roomInfo = $gameRoomSrv->updatePauseStatus($currentRoom, 1);
+        if (empty($roomInfo)) {
+            return $this->responseError('游戏暂停失败');
+        }
+
+        /** @var \Hyperf\SocketIOServer\SocketIO $socketIO */
+        $socketIO = di()->get(\Hyperf\SocketIOServer\SocketIO::class);
+
+        // 通知用户游戏暂停
+        $socketIO->of('/game')->to($currentRoom)->emit('game-pause');
+
+        return $this->responseSuccess();
+    }
+    /**
+     * 游戏暂停恢复
+     *
+     * @Event("game-unpause")
+     */
+    public function gameUnpause(Socket $socket)
+    {
+        $fd = (string) $socket->getFd();
+        $username = SocketMember::make()->getUserName($fd);
+
+        // 获取当前所在房间
+        $roomMemberSrv = GameRoomMember::make();
+        $currentRoom = $roomMemberSrv->getMemberCurrentRoom($username);
+        if (empty($currentRoom)) {
+            return $this->responseError('当前不在房间内！');
+        }
+
+        // 更新房间暂停状态
+        $gameRoomSrv = GameRoom::make();
+        $roomInfo = $gameRoomSrv->updatePauseStatus($currentRoom, 0);
+        if (empty($roomInfo)) {
+            return $this->responseError('游戏暂停恢复失败');
+        }
+
+        /** @var \Hyperf\SocketIOServer\SocketIO $socketIO */
+        $socketIO = di()->get(\Hyperf\SocketIOServer\SocketIO::class);
+
+        // 通知用户游戏恢复暂停
+        $socketIO->of('/game')->to($currentRoom)->emit('game-unpause');
 
         return $this->responseSuccess();
     }
