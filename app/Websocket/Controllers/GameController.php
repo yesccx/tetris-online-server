@@ -58,6 +58,7 @@ class GameController extends BaseNamespace
             'pause'         => 0,
             'blocks'        => [],
             'speed_start'   => 1,
+            'mode'          => 1,
             'start_lines'   => 0,
         ];
         GameRoom::make()->create($roomNumber, $username, $roomInfo);
@@ -359,6 +360,7 @@ class GameController extends BaseNamespace
 
         return $this->responseSuccess();
     }
+
     /**
      * 游戏暂停恢复
      *
@@ -388,6 +390,71 @@ class GameController extends BaseNamespace
 
         // 通知用户游戏恢复暂停
         $socketIO->of('/game')->to($currentRoom)->emit('game-unpause');
+
+        return $this->responseSuccess();
+    }
+
+    /**
+     * 游戏消除行
+     *
+     * @Event("game-block-clear")
+     */
+    public function gameBlockClear(Socket $socket, $data)
+    {
+        $fd = (string) $socket->getFd();
+        $username = SocketMember::make()->getUserName($fd);
+
+        // 获取当前所在房间
+        $roomMemberSrv = GameRoomMember::make();
+        $currentRoom = $roomMemberSrv->getMemberCurrentRoom($username);
+        if (empty($currentRoom)) {
+            return $this->responseError('当前不在房间内！');
+        }
+
+        /** @var \Hyperf\SocketIOServer\SocketIO $socketIO */
+        $socketIO = di()->get(\Hyperf\SocketIOServer\SocketIO::class);
+
+        // 通知其他玩家
+        $socketIO->of('/game')->to($currentRoom)->emit('game-block-clear', [
+            'username' => $username,
+            'lines'    => $data,
+        ]);
+
+        return $this->responseSuccess();
+    }
+
+    /**
+     * 游戏设置更新
+     *
+     * @Event("game-settings")
+     */
+    public function gameSettings(Socket $socket, $data)
+    {
+        $fd = (string) $socket->getFd();
+        $username = SocketMember::make()->getUserName($fd);
+
+        // 获取当前所在房间
+        $roomMemberSrv = GameRoomMember::make();
+        $currentRoom = $roomMemberSrv->getMemberCurrentRoom($username);
+        if (empty($currentRoom)) {
+            return $this->responseError('当前不在房间内！');
+        }
+
+        GameRoom::make()->rememberInfo($currentRoom, function ($info) use (&$data) {
+            $info['speed_start'] = $data['speed_start'] ?? $info['speed_start'];
+            $info['mode'] = $data['mode'] ?? $info['mode'];
+
+            $data['spped_restart'] = $info['speed_start'];
+            $data['mode'] = $info['mode'];
+
+            return $info;
+        });
+
+        /** @var \Hyperf\SocketIOServer\SocketIO $socketIO */
+        $socketIO = di()->get(\Hyperf\SocketIOServer\SocketIO::class);
+
+        // 通知其他玩家
+        $socketIO->of('/game')->to($currentRoom)->emit('game-settings', $data);
 
         return $this->responseSuccess();
     }
