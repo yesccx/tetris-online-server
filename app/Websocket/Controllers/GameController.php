@@ -58,7 +58,7 @@ class GameController extends BaseNamespace
             'pause'         => 0,
             'blocks'        => [],
             'speed_start'   => 1,
-            'mode'          => 1,
+            'mode'          => 2,
             'start_lines'   => 0,
         ];
         GameRoom::make()->create($roomNumber, $username, $roomInfo);
@@ -279,6 +279,13 @@ class GameController extends BaseNamespace
             return $this->responseError('有玩家未准备！');
         }
 
+        // 当玩家数大于1时，需要至少两个队伍
+        if (count($members) > 1) {
+            if (collect($members)->groupBy('team')->count() == 1) {
+                return $this->responseError('游戏至少需要两支队伍！');
+            }
+        }
+
         // 预告生成方块集
         $blocks = [];
         $blockMap = [
@@ -455,6 +462,38 @@ class GameController extends BaseNamespace
 
         // 通知其他玩家
         $socketIO->of('/game')->to($currentRoom)->emit('game-settings', $data);
+
+        return $this->responseSuccess();
+    }
+
+    /**
+     * 玩家设置更新
+     *
+     * @Event("player-settings")
+     */
+    public function playerSettings(Socket $socket, $data)
+    {
+        $fd = (string) $socket->getFd();
+        $username = SocketMember::make()->getUserName($fd);
+
+        // 获取当前所在房间
+        $roomMemberSrv = GameRoomMember::make();
+        $currentRoom = $roomMemberSrv->getMemberCurrentRoom($username);
+        if (empty($currentRoom)) {
+            return $this->responseError('当前不在房间内！');
+        }
+
+        GameRoomMember::make()->rememberInfo($currentRoom, $username, function ($info) use (&$data) {
+            $info['team'] = $data['team'] ?? $info['team'];
+
+            return $info;
+        });
+
+        /** @var \Hyperf\SocketIOServer\SocketIO $socketIO */
+        $socketIO = di()->get(\Hyperf\SocketIOServer\SocketIO::class);
+
+        // 通知其他玩家
+        $socketIO->of('/game')->to($currentRoom)->emit('room-update');
 
         return $this->responseSuccess();
     }

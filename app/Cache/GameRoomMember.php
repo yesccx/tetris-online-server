@@ -24,6 +24,11 @@ class GameRoomMember extends HashGroupRedis
      */
     public function addMember(string $roomNumber, string $username, int $isOwner = 0, int $isReady = 0)
     {
+        // 计算出可使用的队伍
+        $teams = [1, 2, 3, 4];
+        $usedTeams = collect($this->getMemberList($roomNumber))->pluck('team')->values()->toArray();
+        $availableTeam = array_values(array_diff($teams, $usedTeams))[0];
+
         $this->add($roomNumber, $username, json_encode([
             'username'          => $username,
             'join_time'         => Carbon::now(),
@@ -38,6 +43,7 @@ class GameRoomMember extends HashGroupRedis
             'matrix'            => null,
             'discharge_buffers' => 0,
             'fill_buffers'      => 0,
+            'team'              => $availableTeam,
         ]));
 
         // 房间人数加1
@@ -220,19 +226,20 @@ class GameRoomMember extends HashGroupRedis
      */
     public function updateGameData(string $roomNumber, string $username, array $data)
     {
-        $info = $this->getMemberInfo($roomNumber, $username);
-        $info['points'] = $data['points'] ?? $info['points'];
-        $info['is_ready'] = $data['is_ready'] ?? $info['is_ready'];
-        $info['is_over'] = $data['is_over'] ?? $info['is_over'];
-        $info['block_index'] = $data['block_index'] ?? $info['block_index'];
-        $info['cur'] = $data['cur'] ?? $info['cur'];
-        $info['speed_run'] = $data['speed_run'] ?? $info['speed_run'];
-        $info['clear_lines'] = $data['clear_lines'] ?? $info['clear_lines'];
-        $info['matrix'] = $data['matrix'] ?? $info['matrix'];
-        $info['discharge_buffers'] = $data['discharge_buffers'] ?? $info['discharge_buffers'];
-        $info['fill_buffers'] = $data['fill_buffers'] ?? $info['fill_buffers'];
+        return $this->rememberInfo($roomNumber, $username, function ($info) use ($data) {
+            $info['points'] = $data['points'] ?? $info['points'];
+            $info['is_ready'] = $data['is_ready'] ?? $info['is_ready'];
+            $info['is_over'] = $data['is_over'] ?? $info['is_over'];
+            $info['block_index'] = $data['block_index'] ?? $info['block_index'];
+            $info['cur'] = $data['cur'] ?? $info['cur'];
+            $info['speed_run'] = $data['speed_run'] ?? $info['speed_run'];
+            $info['clear_lines'] = $data['clear_lines'] ?? $info['clear_lines'];
+            $info['matrix'] = $data['matrix'] ?? $info['matrix'];
+            $info['discharge_buffers'] = $data['discharge_buffers'] ?? $info['discharge_buffers'];
+            $info['fill_buffers'] = $data['fill_buffers'] ?? $info['fill_buffers'];
 
-        $this->add($roomNumber, $username, json_encode($info));
+            return $info;
+        });
 
         // FIXME: 暂时不需要手动通知，房间内的玩家会定时手动获取
 
@@ -241,6 +248,22 @@ class GameRoomMember extends HashGroupRedis
 
         // // 通知所有房间内的用户
         // $socketIO->of('/game')->to($roomNumber)->emit('room-update');
+    }
+
+    /**
+     * 重新更新信息
+     *
+     * @param string $roomNumber 房间号
+     * @param string $username 用户名
+     * @param callable $handler
+     * @return array 更新后的信息
+     */
+    public function rememberInfo(string $roomNumber, string $username, callable $handler)
+    {
+        $info = $this->getMemberInfo($roomNumber, $username);
+        $newInfo = $handler($info);
+        $this->add($roomNumber, $username, json_encode($newInfo));
+        return $newInfo;
     }
 
     /**
