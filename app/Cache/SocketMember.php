@@ -93,9 +93,19 @@ class SocketMember extends HashRedis
     {
         $username = $this->getUserName($fd);
 
-        // 从所在房间内移除
+        // 从所在房间内移除，或标记为离线
         if (!empty($username)) {
-            GameRoomMember::make()->leaveMemberCurrentRoom($username);
+            $roomMemberSrv = GameRoomMember::make();
+            $room = $roomMemberSrv->getMemberCurrentRoom($username);
+            if (!empty($room) && $room['status'] == 1) {
+                $roomMemberSrv->rememberInfo($room, $username, function ($info) {
+                    $info['is_online'] = 0;
+                    return $info;
+                });
+            } else {
+                GameRoomMember::make()->leaveMemberCurrentRoom($username);
+            }
+
             OnlineMember::make()->logout($username);
         }
 

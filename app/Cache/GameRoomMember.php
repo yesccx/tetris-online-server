@@ -35,6 +35,7 @@ class GameRoomMember extends HashGroupRedis
             'is_owner'          => $isOwner,
             'is_ready'          => $isReady,
             'is_over'           => 0,
+            'is_online'         => 1,
             'points'            => 0,
             'block_index'       => 0,
             'clear_lines'       => 0,
@@ -52,6 +53,27 @@ class GameRoomMember extends HashGroupRedis
             return $roomInfo;
         });
 
+        /** @var \Hyperf\SocketIOServer\SocketIO $socketIO */
+        $socketIO = di()->get(\Hyperf\SocketIOServer\SocketIO::class);
+
+        // 通知所有房间内的用户
+        $socketIO->of('/game')->to($roomNumber)->emit('join-room', $username);
+
+        // 将当前用户加入到socket房间
+        $userFd = OnlineMember::make()->getFd($username);
+        $userSid = (string) di()->get(SidProviderInterface::class)->getSid((int) $userFd);
+        $socketIO->of('/game')->getAdapter()->add($userSid, $roomNumber);
+    }
+
+    /**
+     * 重新加入
+     *
+     * @param string $roomNumber
+     * @param string $username
+     * @return void
+     */
+    public function rejoin(string $roomNumber, string $username)
+    {
         /** @var \Hyperf\SocketIOServer\SocketIO $socketIO */
         $socketIO = di()->get(\Hyperf\SocketIOServer\SocketIO::class);
 
@@ -152,7 +174,9 @@ class GameRoomMember extends HashGroupRedis
     public function leaveMemberCurrentRoom(string $username)
     {
         $roomNumber = $this->getMemberCurrentRoom($username);
-        $this->removeMember($roomNumber, $username);
+        if (!empty($roomNumber)) {
+            $this->removeMember($roomNumber, $username);
+        }
     }
 
     /**

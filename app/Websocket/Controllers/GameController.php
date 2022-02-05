@@ -498,4 +498,24 @@ class GameController extends BaseNamespace
         return $this->responseSuccess();
     }
 
+    /**
+     * 加入上一次房间
+     *
+     * @Event("join-last-room")
+     * @return array $data
+     */
+    public function joinLastRoom(Socket $socket)
+    {
+        $fd = (string) $socket->getFd();
+        $username = SocketMember::make()->getUserName($fd);
+
+        $room = GameRoomMember::make()->getMemberCurrentRoom($username);
+        if (empty($room)) {
+            return $this->responseError('房间不存在');
+        }
+
+        GameRoomMember::make()->rejoin($room['number'], $username);
+
+        return $this->responseSuccess();
+    }
 }
