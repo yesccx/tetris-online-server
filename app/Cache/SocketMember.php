@@ -5,6 +5,7 @@ declare (strict_types = 1);
 namespace App\Cache;
 
 use App\Cache\Repository\HashRedis;
+use Throwable;
 
 /**
  * Socket用户(fd<->username)
@@ -95,18 +96,31 @@ class SocketMember extends HashRedis
 
         // 从所在房间内移除，或标记为离线
         if (!empty($username)) {
-            $roomMemberSrv = GameRoomMember::make();
-            $room = $roomMemberSrv->getMemberCurrentRoom($username);
-            if (!empty($room) && $room['status'] == 1) {
-                $roomMemberSrv->rememberInfo($room, $username, function ($info) {
-                    $info['is_online'] = 0;
-                    return $info;
-                });
-            } else {
-                GameRoomMember::make()->leaveMemberCurrentRoom($username);
-            }
+            try {
+                $roomMemberSrv = GameRoomMember::make();
+                $roomSrv = GameRoom::make();
+                $roomNumber = $roomMemberSrv->getMemberCurrentRoom($username);
+                if (!empty($roomNumber)) {
+                    $room = $roomSrv->getInfo($roomNumber);
+                    if (!empty($room) && $room['status'] == 1) {
+                        $roomMemberSrv->rememberInfo($roomNumber, $username, function ($info) {
+                            $info['is_online'] = 0;
+                            return $info;
+                        });
 
-            OnlineMember::make()->logout($username);
+                        // 房间内没人时， 解散房间
+                        if ($room['current_count'] <= 1) {
+                            $roomSrv->close($room['number']);
+                        }
+                    } else {
+                        $roomMemberSrv->leaveMemberCurrentRoom($username);
+                    }
+                }
+            } catch (Throwable $e) {
+                throw $e;
+            } finally {
+                OnlineMember::make()->logout($username);
+            }
         }
 
         $this->rem($fd);

@@ -6,7 +6,6 @@ namespace App\Cache;
 
 use App\Cache\Repository\HashRedis;
 use App\Event\RoomListUpdateEvent;
-use PhpParser\Node\Expr\FuncCall;
 
 /**
  * 游戏房间
@@ -117,6 +116,9 @@ class GameRoom extends HashRedis
     public function getInfo(string $roomNumber)
     {
         $info = $this->get($roomNumber);
+        if (empty($info)) {
+            throw new \Exception('房间已不存在');
+        }
         return json_decode($info, true);
     }
 

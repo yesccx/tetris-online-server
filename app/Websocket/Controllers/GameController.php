@@ -185,11 +185,31 @@ class GameController extends BaseNamespace
         $fd = (string) $socket->getFd();
         $username = SocketMember::make()->getUserName($fd);
 
-        // 退出当前的房间
-        $roomMember = GameRoomMember::make();
-        $currentRoom = $roomMember->getMemberCurrentRoom($username);
-        if (!empty($currentRoom)) {
-            $roomMember->removeMember($currentRoom, $username);
+        // 退出当前的房间(游戏开始仅标记为退出)
+        $roomMemberSrv = GameRoomMember::make();
+        $roomSrv = GameRoom::make();
+        $roomNumber = $roomMemberSrv->getMemberCurrentRoom($username);
+        if (!empty($roomNumber)) {
+            $room = $roomSrv->getInfo($roomNumber);
+            if (!empty($room) && $room['status'] == 1) {
+                $roomMemberSrv->rememberInfo($roomNumber, $username, function ($info) {
+                    $info['is_quit'] = 1;
+                    return $info;
+                });
+
+                // 房间人数减1
+                $room = $roomSrv->rememberInfo($roomNumber, function ($info) {
+                    $info['current_count'] = $info['current_count'] - 1;
+                    return $info;
+                });
+
+                // 房间内没人时， 解散房间
+                if ($room['current_count'] <= 0) {
+                    $roomSrv->close($room['number']);
+                }
+            } else {
+                $roomMemberSrv->removeMember($roomNumber, $username);
+            }
         }
 
         return $this->responseSuccess();
@@ -514,7 +534,7 @@ class GameController extends BaseNamespace
             return $this->responseError('房间不存在');
         }
 
-        GameRoomMember::make()->rejoin($room['number'], $username);
+        GameRoomMember::make()->rejoin((string) $room, $username);
 
         return $this->responseSuccess();
     }

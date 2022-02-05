@@ -36,6 +36,7 @@ class GameRoomMember extends HashGroupRedis
             'is_ready'          => $isReady,
             'is_over'           => 0,
             'is_online'         => 1,
+            'is_quit'           => 0,
             'points'            => 0,
             'block_index'       => 0,
             'clear_lines'       => 0,
@@ -76,6 +77,12 @@ class GameRoomMember extends HashGroupRedis
     {
         /** @var \Hyperf\SocketIOServer\SocketIO $socketIO */
         $socketIO = di()->get(\Hyperf\SocketIOServer\SocketIO::class);
+
+        // 更新在线状态
+        GameRoomMember::make()->rememberInfo($roomNumber, $username, function ($info) {
+            $info['is_online'] = 1;
+            return $info;
+        });
 
         // 通知所有房间内的用户
         $socketIO->of('/game')->to($roomNumber)->emit('join-room', $username);
@@ -147,11 +154,12 @@ class GameRoomMember extends HashGroupRedis
      */
     public function getMemberCurrentRoom(string $username)
     {
-        $result = 0;
+        $result = '';
         collect(GameRoom::make()->all())->keys()->each(function ($roomNumber) use (&$result, $username) {
             $roomNumber = (string) $roomNumber;
             collect($this->getAll($roomNumber))->each(function ($info, $rusername) use (&$result, $username, $roomNumber) {
-                if ($rusername == $username) {
+                $info = json_decode($info, true);
+                if ($rusername == $username && $info['is_quit'] != 1) {
                     $result = $roomNumber;
                     return false;
                 }
