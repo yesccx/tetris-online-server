@@ -5,6 +5,8 @@ declare (strict_types = 1);
 namespace App\Cache;
 
 use App\Cache\Repository\HashRedis;
+use App\Services\GameRoomService;
+use Hyperf\Di\Annotation\Inject;
 use Throwable;
 
 /**
@@ -12,6 +14,11 @@ use Throwable;
  */
 class SocketMember extends HashRedis
 {
+    /**
+     * @Inject
+     * @var GameRoomService
+     */
+    protected $service;
 
     /**
      * 登录
@@ -105,12 +112,18 @@ class SocketMember extends HashRedis
                     if (!empty($room) && $room['status'] == 1) {
                         $roomMemberSrv->rememberInfo($roomNumber, $username, function ($info) {
                             $info['is_online'] = 0;
+                            // 提前标记游戏结束时间
+                            $info['over_time'] = intval(microtime(true) * 10000);
+
                             return $info;
                         });
 
                         // 房间内没人时， 解散房间
-                        if ($room['current_count'] <= 1) {
+                        if ($room['current_count'] <= 0) {
                             $roomSrv->close($room['number']);
+                        } else {
+                            // 如果房间没有在线玩家时，30秒后自动关闭房间
+                            $this->service->gameRoomAutoCloseJob($roomNumber);
                         }
                     } else {
                         $roomMemberSrv->leaveMemberCurrentRoom($username);

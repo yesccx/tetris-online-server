@@ -258,7 +258,7 @@ class GameRoomMember extends HashGroupRedis
      */
     public function updateGameData(string $roomNumber, string $username, array $data)
     {
-        return $this->rememberInfo($roomNumber, $username, function ($info) use ($data) {
+        $data = $this->rememberInfo($roomNumber, $username, function ($info) use ($data) {
             $info['points'] = $data['points'] ?? $info['points'];
             $info['is_ready'] = $data['is_ready'] ?? $info['is_ready'];
             $info['is_over'] = $data['is_over'] ?? $info['is_over'];
@@ -270,8 +270,30 @@ class GameRoomMember extends HashGroupRedis
             $info['discharge_buffers'] = $data['discharge_buffers'] ?? $info['discharge_buffers'];
             $info['fill_buffers'] = $data['fill_buffers'] ?? $info['fill_buffers'];
 
+            // 结束时，标记结束时间（用作排名）
+            if (!empty($info['is_over'])) {
+                $info['over_time'] = intval(microtime(true) * 10000);
+            }
+
             return $info;
         });
+
+        // 判断是否在线的所有玩家都已结束
+        if (!empty($data['is_over'])) {
+            $members = $this->getMemberList($roomNumber);
+            if (!empty($members)) {
+                $gameOver = collect($members)->every(function ($member) {
+                    return $member['is_over'] || $member['is_quit'] || !$member['is_online'];
+                });
+
+                // 游戏结束
+                if ($gameOver) {
+                    GameRoom::make()->gameOver($roomNumber);
+                }
+            }
+        }
+
+        return $data;
 
         // FIXME: 暂时不需要手动通知，房间内的玩家会定时手动获取
 

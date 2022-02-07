@@ -179,4 +179,31 @@ class GameRoom extends HashRedis
         });
     }
 
+    /**
+     * 游戏结束
+     *
+     * @param string $roomNumber 房间号
+     * @return void
+     */
+    public function gameOver(string $roomNumber)
+    {
+        // 标记房间状态
+        $this->rememberInfo($roomNumber, function ($info) {
+            $info['status'] = 0;
+            return $info;
+        });
+
+        // 生成结算信息
+
+        // 从房间移除已离线、已退出玩家
+
+        // 重置房间及房间内玩家的游戏数据
+
+        // 通知所有房间内的玩家，游戏结束
+        /** @var \Hyperf\SocketIOServer\SocketIO $socketIO */
+        $socketIO = di()->get(\Hyperf\SocketIOServer\SocketIO::class);
+        $socketIO->of('/game')->to($roomNumber)->emit('game-over');
+
+        // 返回结算信息
+    }
 }

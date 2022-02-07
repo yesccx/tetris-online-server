@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "11a7791bdd70758b9ac3d4bc04247653",
+    "content-hash": "ab64886d2c3fdab7aae8d944973c321d",
     "packages": [
         {
             "name": "doctrine/annotations",
@@ -770,7 +770,13 @@
                 "type": "zip",
                 "url": "https://api.github.com/repos/hyperf/async-queue/zipball/7c6b230ef360e2659524cef371fdca52d88f1501",
                 "reference": "7c6b230ef360e2659524cef371fdca52d88f1501",
-                "shasum": ""
+                "shasum": "",
+                "mirrors": [
+                    {
+                        "url": "https://mirrors.aliyun.com/composer/dists/%package%/%reference%.%type%",
+                        "preferred": true
+                    }
+                ]
             },
             "require": {
                 "hyperf/command": "~2.2.0",

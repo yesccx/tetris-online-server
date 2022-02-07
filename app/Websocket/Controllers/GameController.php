@@ -9,8 +9,10 @@ use App\Cache\GameRoomMember;
 use App\Cache\GameRoomNumber;
 use App\Cache\OnlineMember;
 use App\Cache\SocketMember;
+use App\Services\GameRoomService;
 use App\Traits\WebsocketResponse;
 use Carbon\Carbon;
+use Hyperf\Di\Annotation\Inject;
 use Hyperf\SocketIOServer\Annotation\Event;
 use Hyperf\SocketIOServer\Annotation\SocketIONamespace;
 use Hyperf\SocketIOServer\BaseNamespace;
@@ -22,6 +24,12 @@ use Hyperf\SocketIOServer\Socket;
 class GameController extends BaseNamespace
 {
     use WebsocketResponse;
+
+    /**
+     * @Inject
+     * @var GameRoomService
+     */
+    protected $service;
 
     /**
      * 创建房间
@@ -194,6 +202,8 @@ class GameController extends BaseNamespace
             if (!empty($room) && $room['status'] == 1) {
                 $roomMemberSrv->rememberInfo($roomNumber, $username, function ($info) {
                     $info['is_quit'] = 1;
+                    // 提前标记游戏结束时间
+                    $info['over_time'] = intval(microtime(true) * 10000);
                     return $info;
                 });
 
@@ -206,6 +216,9 @@ class GameController extends BaseNamespace
                 // 房间内没人时， 解散房间
                 if ($room['current_count'] <= 0) {
                     $roomSrv->close($room['number']);
+                } else {
+                    // 如果房间没有在线玩家时，30秒后自动关闭房间
+                    $this->service->gameRoomAutoCloseJob($roomNumber);
                 }
             } else {
                 $roomMemberSrv->removeMember($roomNumber, $username);
