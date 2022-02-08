@@ -105,28 +105,13 @@ class SocketMember extends HashRedis
         if (!empty($username)) {
             try {
                 $roomMemberSrv = GameRoomMember::make();
-                $roomSrv = GameRoom::make();
                 $roomNumber = $roomMemberSrv->getMemberCurrentRoom($username);
                 if (!empty($roomNumber)) {
-                    $room = $roomSrv->getInfo($roomNumber);
+                    $room = GameRoom::make()->getInfo($roomNumber);
                     if (!empty($room) && $room['status'] == 1) {
-                        $roomMemberSrv->rememberInfo($roomNumber, $username, function ($info) {
-                            $info['is_online'] = 0;
-                            // 提前标记游戏结束时间
-                            $info['over_time'] = intval(microtime(true) * 10000);
-
-                            return $info;
-                        });
-
-                        // 房间内没人时， 解散房间
-                        if ($room['current_count'] <= 0) {
-                            $roomSrv->close($room['number']);
-                        } else {
-                            // 如果房间没有在线玩家时，30秒后自动关闭房间
-                            $this->service->gameRoomAutoCloseJob($roomNumber);
-                        }
+                        $roomMemberSrv->offlineMember($roomNumber, $username);
                     } else {
-                        $roomMemberSrv->leaveMemberCurrentRoom($username);
+                        $roomMemberSrv->removeMember($roomNumber, $username);
                     }
                 }
             } catch (Throwable $e) {

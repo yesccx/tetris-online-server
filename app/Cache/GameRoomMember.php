@@ -5,14 +5,23 @@ declare (strict_types = 1);
 namespace App\Cache;
 
 use App\Cache\Repository\HashGroupRedis;
+use App\Services\GameRoomService;
 use Carbon\Carbon;
+use Hyperf\Di\Annotation\Inject;
 use Hyperf\SocketIOServer\SidProvider\SidProviderInterface;
+use Throwable;
 
 /**
  * 游戏房间成员
  */
 class GameRoomMember extends HashGroupRedis
 {
+    /**
+     * @Inject
+     * @var GameRoomService
+     */
+    protected $service;
+
     /**
      * 添加房间成员
      *
@@ -46,6 +55,7 @@ class GameRoomMember extends HashGroupRedis
             'discharge_buffers' => 0,
             'fill_buffers'      => 0,
             'team'              => $availableTeam,
+            'over_time'         => 0,
         ]));
 
         // 房间人数加1
@@ -98,37 +108,159 @@ class GameRoomMember extends HashGroupRedis
      *
      * @param string $roomNumber
      * @param string $username
+     * @param bool $notice 是否进行广播通知
+     * @param bool $reStatistics 是否重新统计人数
      * @return void
      */
-    public function removeMember(string $roomNumber, string $username)
+    public function removeMember(string $roomNumber, string $username, bool $reStatistics = true)
     {
         if (empty($roomNumber)) {
             return true;
         }
 
-        $this->rem($roomNumber, $username);
+        if (!$this->rem($roomNumber, $username)) {
+            return true;
+        }
+
+        // 房间人数减1
+        $roomInfo = GameRoom::make()->rememberInfo($roomNumber, function ($roomInfo) use ($reStatistics) {
+            if ($reStatistics) {
+                $roomInfo['current_count']--;
+            }
+            return $roomInfo;
+        });
+        if (empty($roomInfo)) {
+            return true;
+        }
+
+        // 房间内没人时或房主离开房间时， 解散房间
+        if ($roomInfo['current_count'] == 0 || $roomInfo['owner'] == $username) {
+            GameRoom::make()->close($roomInfo['number']);
+        } else {
+            if ($reStatistics) {
+                // 广播通知有人离开房间
+                di()->get(\Hyperf\SocketIOServer\SocketIO::class)
+                    ->of('/game')
+                    ->to($roomNumber)
+                    ->emit('leave-room', $username);
+            }
+        }
+
+        try {
+            /** @var \Hyperf\SocketIOServer\SocketIO $socketIO */
+            $socketIO = di()->get(\Hyperf\SocketIOServer\SocketIO::class);
+
+            // 将当前用户移出socket房间
+            $userFd = OnlineMember::make()->getFd($username);
+            $userSid = (string) di()->get(SidProviderInterface::class)->getSid((int) $userFd);
+            $socketIO->of('/game')->getAdapter()->del($userSid, $roomNumber);
+        } catch (Throwable $e) {}
+    }
+
+    /**
+     * 软移除房间成员
+     *
+     * @param string $roomNumber
+     * @param string $username
+     * @param bool $notice 是否进行广播通知
+     * @param bool $reStatistics 是否重新统计人数
+     * @return void
+     */
+    public function softRemoveMember(string $roomNumber, string $username)
+    {
+        if (empty($roomNumber)) {
+            return true;
+        }
+
+        GameRoomMember::make()->rememberInfo($roomNumber, $username, function ($info) {
+            $info['is_quit'] = 1;
+            // 提前标记游戏结束时间
+            $info['over_time'] = intval(microtime(true) * 10000);
+            return $info;
+        });
 
         // 房间人数减1
         $roomInfo = GameRoom::make()->rememberInfo($roomNumber, function ($roomInfo) {
             $roomInfo['current_count']--;
             return $roomInfo;
         });
+        if (empty($roomInfo)) {
+            return true;
+        }
 
-        // 房间内没人时或房主离开房间时， 解散房间
-        if ($roomInfo['current_count'] == 0 || $roomInfo['owner'] == $username) {
+        // 房间内没人时，解散房间
+        if (!empty($roomInfo) && $roomInfo['current_count'] <= 0) {
             GameRoom::make()->close($roomInfo['number']);
         } else {
             // 广播通知有人离开房间
-            di()->get(\Hyperf\SocketIOServer\SocketIO::class)->of('/game')->to($roomNumber)->emit('leave-room', $username);
+            di()->get(\Hyperf\SocketIOServer\SocketIO::class)
+                ->of('/game')
+                ->to($roomNumber)
+                ->emit('leave-room', $username);
+
+            // 如果房间没有在线玩家时，30秒后自动关闭房间
+            $this->service->gameRoomAutoCloseJob($roomNumber);
+
+            // 检测是否结束游戏
+            $this->service->checkGameOver($roomNumber);
         }
 
-        /** @var \Hyperf\SocketIOServer\SocketIO $socketIO */
-        $socketIO = di()->get(\Hyperf\SocketIOServer\SocketIO::class);
+        try {
+            /** @var \Hyperf\SocketIOServer\SocketIO $socketIO */
+            $socketIO = di()->get(\Hyperf\SocketIOServer\SocketIO::class);
 
-        // 将当前用户移出socket房间
-        $userFd = OnlineMember::make()->getFd($username);
-        $userSid = (string) di()->get(SidProviderInterface::class)->getSid((int) $userFd);
-        $socketIO->of('/game')->getAdapter()->del($userSid, $roomNumber);
+            // 将当前用户移出socket房间
+            $userFd = OnlineMember::make()->getFd($username);
+            $userSid = (string) di()->get(SidProviderInterface::class)->getSid((int) $userFd);
+            $socketIO->of('/game')->getAdapter()->del($userSid, $roomNumber);
+        } catch (Throwable $e) {}
+    }
+
+    /**
+     * 标记离线 房间成员
+     *
+     * @param string $roomNumber
+     * @param string $username
+     * @param bool $notice 是否进行广播通知
+     * @param bool $reStatistics 是否重新统计人数
+     * @return void
+     */
+    public function offlineMember(string $roomNumber, string $username)
+    {
+        if (empty($roomNumber)) {
+            return true;
+        }
+
+        GameRoomMember::make()->rememberInfo($roomNumber, $username, function ($info) {
+            $info['is_online'] = 0;
+            // 提前标记游戏结束时间
+            $info['over_time'] = intval(microtime(true) * 10000);
+            return $info;
+        });
+
+        // 房间内没人时，解散房间
+        if (!empty($roomInfo) && $roomInfo['current_count'] <= 0) {
+            GameRoom::make()->close($roomInfo['number']);
+        } else {
+            // 广播通知有人离线
+            di()->get(\Hyperf\SocketIOServer\SocketIO::class)
+                ->of('/game')
+                ->to($roomNumber)
+                ->emit('player-offline', $username);
+
+            // 如果房间没有在线玩家时，30秒后自动关闭房间
+            $this->service->gameRoomAutoCloseJob($roomNumber);
+        }
+
+        try {
+            /** @var \Hyperf\SocketIOServer\SocketIO $socketIO */
+            $socketIO = di()->get(\Hyperf\SocketIOServer\SocketIO::class);
+
+            // 将当前用户移出socket房间
+            $userFd = OnlineMember::make()->getFd($username);
+            $userSid = (string) di()->get(SidProviderInterface::class)->getSid((int) $userFd);
+            $socketIO->of('/game')->getAdapter()->del($userSid, $roomNumber);
+        } catch (Throwable $e) {}
     }
 
     /**
@@ -208,6 +340,9 @@ class GameRoomMember extends HashGroupRedis
     public function getMemberInfo(string $roomNumber, string $username)
     {
         $info = $this->get($roomNumber, $username);
+        if (false === $info) {
+            return false;
+        }
         return json_decode($info, true);
     }
 
@@ -236,10 +371,13 @@ class GameRoomMember extends HashGroupRedis
      */
     public function setReadyStatus(string $roomNumber, string $username, int $readyStatus)
     {
-        $info = $this->getMemberInfo($roomNumber, $username);
-        $info['is_ready'] = $readyStatus;
-
-        $this->add($roomNumber, $username, json_encode($info));
+        $info = $this->rememberInfo($roomNumber, $username, function ($info) use ($readyStatus) {
+            $info['is_ready'] = $readyStatus;
+            return $info;
+        });
+        if (!$info) {
+            return false;
+        }
 
         /** @var \Hyperf\SocketIOServer\SocketIO $socketIO */
         $socketIO = di()->get(\Hyperf\SocketIOServer\SocketIO::class);
@@ -278,30 +416,12 @@ class GameRoomMember extends HashGroupRedis
             return $info;
         });
 
-        // 判断是否在线的所有玩家都已结束
+        // 当有玩家结束时，尝试判定游戏是否结束
         if (!empty($data['is_over'])) {
-            $members = $this->getMemberList($roomNumber);
-            if (!empty($members)) {
-                $gameOver = collect($members)->every(function ($member) {
-                    return $member['is_over'] || $member['is_quit'] || !$member['is_online'];
-                });
-
-                // 游戏结束
-                if ($gameOver) {
-                    GameRoom::make()->gameOver($roomNumber);
-                }
-            }
+            $this->service->checkGameOver($roomNumber);
         }
 
         return $data;
-
-        // FIXME: 暂时不需要手动通知，房间内的玩家会定时手动获取
-
-        /** @var \Hyperf\SocketIOServer\SocketIO $socketIO */
-        // $socketIO = di()->get(\Hyperf\SocketIOServer\SocketIO::class);
-
-        // // 通知所有房间内的用户
-        // $socketIO->of('/game')->to($roomNumber)->emit('room-update');
     }
 
     /**
@@ -315,6 +435,9 @@ class GameRoomMember extends HashGroupRedis
     public function rememberInfo(string $roomNumber, string $username, callable $handler)
     {
         $info = $this->getMemberInfo($roomNumber, $username);
+        if (empty($info)) {
+            return false;
+        }
         $newInfo = $handler($info);
         $this->add($roomNumber, $username, json_encode($newInfo));
         return $newInfo;

@@ -21,7 +21,7 @@ return [
         'handle_timeout' => 10,
         'processes' => 1,
         'concurrent' => [
-            'limit' => 10,
+            'limit' => 1,
         ],
     ],
 ];

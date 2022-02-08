@@ -200,26 +200,33 @@ class GameController extends BaseNamespace
         if (!empty($roomNumber)) {
             $room = $roomSrv->getInfo($roomNumber);
             if (!empty($room) && $room['status'] == 1) {
-                $roomMemberSrv->rememberInfo($roomNumber, $username, function ($info) {
-                    $info['is_quit'] = 1;
-                    // 提前标记游戏结束时间
-                    $info['over_time'] = intval(microtime(true) * 10000);
-                    return $info;
-                });
+                $roomMemberSrv->softRemoveMember($roomNumber, $username);
+            } else {
+                $roomMemberSrv->removeMember($roomNumber, $username);
+            }
+        }
 
-                // 房间人数减1
-                $room = $roomSrv->rememberInfo($roomNumber, function ($info) {
-                    $info['current_count'] = $info['current_count'] - 1;
-                    return $info;
-                });
+        return $this->responseSuccess();
+    }
 
-                // 房间内没人时， 解散房间
-                if ($room['current_count'] <= 0) {
-                    $roomSrv->close($room['number']);
-                } else {
-                    // 如果房间没有在线玩家时，30秒后自动关闭房间
-                    $this->service->gameRoomAutoCloseJob($roomNumber);
-                }
+    /**
+     * 房间玩家离线
+     *
+     * @Event("player-offline")
+     */
+    public function playerOffline(Socket $socket)
+    {
+        $fd = (string) $socket->getFd();
+        $username = SocketMember::make()->getUserName($fd);
+
+        // 退出当前的房间(游戏开始仅标记为退出)
+        $roomMemberSrv = GameRoomMember::make();
+        $roomSrv = GameRoom::make();
+        $roomNumber = $roomMemberSrv->getMemberCurrentRoom($username);
+        if (!empty($roomNumber)) {
+            $room = $roomSrv->getInfo($roomNumber);
+            if (!empty($room) && $room['status'] == 1) {
+                $roomMemberSrv->offlineMember($roomNumber, $username);
             } else {
                 $roomMemberSrv->removeMember($roomNumber, $username);
             }

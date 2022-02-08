@@ -40,15 +40,10 @@ class GameRoom extends HashRedis
      */
     public function updateStatus(string $roomNumber, int $status = 0)
     {
-        $info = $this->getInfo($roomNumber);
-        if (empty($info)) {
-            return false;
-        }
-
-        $info['status'] = $status;
-        $this->updateInfo($roomNumber, $info);
-
-        return $info;
+        return $this->rememberInfo($roomNumber, function ($info) use ($status) {
+            $info['status'] = $status;
+            return $info;
+        });
     }
 
     /**
@@ -60,15 +55,10 @@ class GameRoom extends HashRedis
      */
     public function updatePauseStatus(string $roomNumber, int $status = 0)
     {
-        $info = $this->getInfo($roomNumber);
-        if (empty($info)) {
-            return false;
-        }
-
-        $info['pause'] = $status;
-        $this->updateInfo($roomNumber, $info);
-
-        return $info;
+        return $this->rememberInfo($roomNumber, function ($info) use ($status) {
+            $info['pause'] = $status;
+            return $info;
+        });
     }
 
     /**
@@ -80,15 +70,10 @@ class GameRoom extends HashRedis
      */
     public function updateBlocks(string $roomNumber, array $blocks = [])
     {
-        $info = $this->getInfo($roomNumber);
-        if (empty($info)) {
-            return false;
-        }
-
-        $info['blocks'] = $blocks;
-        $this->updateInfo($roomNumber, $info);
-
-        return $info;
+        return $this->rememberInfo($roomNumber, function ($info) use ($blocks) {
+            $info['blocks'] = $blocks;
+            return $info;
+        });
     }
 
     /**
@@ -146,6 +131,9 @@ class GameRoom extends HashRedis
     public function rememberInfo(string $roomNumber, callable $handler)
     {
         $info = $this->getInfo($roomNumber);
+        if (empty($info)) {
+            return false;
+        }
         $newInfo = $handler($info);
         $this->updateInfo($roomNumber, $newInfo);
         return $newInfo;
@@ -187,23 +175,63 @@ class GameRoom extends HashRedis
      */
     public function gameOver(string $roomNumber)
     {
-        // 标记房间状态
-        $this->rememberInfo($roomNumber, function ($info) {
+        // 重置房间数据
+        $room = $this->rememberInfo($roomNumber, function ($info) {
             $info['status'] = 0;
+            $info['pause'] = 0;
+            $info['blocks'] = [];
             return $info;
         });
+        if (empty($room)) {
+            return false;
+        }
+
+        $roomMemberSrv = GameRoomMember::make();
 
         // 生成结算信息
-
-        // 从房间移除已离线、已退出玩家
-
-        // 重置房间及房间内玩家的游戏数据
+        $members = $roomMemberSrv->getMemberList($roomNumber);
+        $members = collect($members);
+        $settlementData = $members->map(function ($member) {
+            return [
+                'username'          => $member['username'],
+                'team'              => $member['team'],
+                'over_time'         => $member['over_time'] ?: intval(microtime(true) * 10000),
+                'points'            => $member['points'],
+                'block_index'       => $member['block_index'],
+                'clear_lines'       => $member['clear_lines'],
+                'discharge_buffers' => $member['discharge_buffers'],
+            ];
+        })->sortByDesc('over_time')->values()->toArray();
 
         // 通知所有房间内的玩家，游戏结束
         /** @var \Hyperf\SocketIOServer\SocketIO $socketIO */
         $socketIO = di()->get(\Hyperf\SocketIOServer\SocketIO::class);
-        $socketIO->of('/game')->to($roomNumber)->emit('game-over');
+        $socketIO->of('/game')->to($roomNumber)->emit('game-over', $settlementData);
 
-        // 返回结算信息
+        // 重置房间内玩家数据
+        $members->each(function ($member) use ($roomMemberSrv, $roomNumber) {
+            if (!$member['is_online'] || $member['is_quit']) {
+                // 从房间移除已离线、已退出玩家
+                $roomMemberSrv->removeMember($roomNumber, $member['username'], false);
+            } else {
+                // 重置数据
+                $roomMemberSrv->rememberInfo($roomNumber, $member['username'], function ($info) {
+                    if (!$info['is_owner']) {
+                        $info['is_ready'] = 0;
+                    }
+                    $info['is_over'] = 0;
+                    $info['is_online'] = 1;
+                    $info['points'] = 0;
+                    $info['block_index'] = 0;
+                    $info['clear_lines'] = 0;
+                    $info['cur'] = null;
+                    $info['matrix'] = null;
+                    $info['discharge_buffers'] = 0;
+                    $info['fill_buffers'] = 0;
+                    $info['over_time'] = 0;
+                    return $info;
+                });
+            }
+        });
     }
 }
