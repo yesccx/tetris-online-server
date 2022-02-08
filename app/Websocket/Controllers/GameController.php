@@ -406,7 +406,10 @@ class GameController extends BaseNamespace
             return $this->responseError('当前不在房间内！');
         }
 
-        $roomMemberSrv->updateGameData($currentRoom, $username, $data);
+        $room = GameRoom::make()->getInfo($currentRoom);
+        if (!empty($room) && $room['status'] == 1) {
+            $roomMemberSrv->updateGameData($currentRoom, $username, $data);
+        }
 
         return $this->responseSuccess();
     }

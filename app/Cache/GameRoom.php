@@ -234,7 +234,7 @@ class GameRoom extends HashRedis
         // 从房间移除已离线、已退出玩家
         $members->each(function ($member) use ($roomMemberSrv, $roomNumber) {
             if (!$member['is_online'] || $member['is_quit']) {
-                $roomMemberSrv->removeMember($roomNumber, $member['username'], false);
+                $roomMemberSrv->removeMember($roomNumber, $member['username'], !$member['is_quit']);
             }
         });
     }
