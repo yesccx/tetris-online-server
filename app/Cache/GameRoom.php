@@ -203,17 +203,9 @@ class GameRoom extends HashRedis
             ];
         })->sortByDesc('over_time')->values()->toArray();
 
-        // 通知所有房间内的玩家，游戏结束
-        /** @var \Hyperf\SocketIOServer\SocketIO $socketIO */
-        $socketIO = di()->get(\Hyperf\SocketIOServer\SocketIO::class);
-        $socketIO->of('/game')->to($roomNumber)->emit('game-over', $settlementData);
-
         // 重置房间内玩家数据
         $members->each(function ($member) use ($roomMemberSrv, $roomNumber) {
-            if (!$member['is_online'] || $member['is_quit']) {
-                // 从房间移除已离线、已退出玩家
-                $roomMemberSrv->removeMember($roomNumber, $member['username'], false);
-            } else {
+            if ($member['is_online'] && !$member['is_quit']) {
                 // 重置数据
                 $roomMemberSrv->rememberInfo($roomNumber, $member['username'], function ($info) {
                     if (!$info['is_owner']) {
@@ -231,6 +223,18 @@ class GameRoom extends HashRedis
                     $info['over_time'] = 0;
                     return $info;
                 });
+            }
+        });
+
+        // 通知所有房间内的玩家，游戏结束
+        /** @var \Hyperf\SocketIOServer\SocketIO $socketIO */
+        $socketIO = di()->get(\Hyperf\SocketIOServer\SocketIO::class);
+        $socketIO->of('/game')->to($roomNumber)->emit('game-over', $settlementData);
+
+        // 从房间移除已离线、已退出玩家
+        $members->each(function ($member) use ($roomMemberSrv, $roomNumber) {
+            if (!$member['is_online'] || $member['is_quit']) {
+                $roomMemberSrv->removeMember($roomNumber, $member['username'], false);
             }
         });
     }

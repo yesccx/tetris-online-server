@@ -137,8 +137,28 @@ class GameController extends BaseNamespace
             return $this->responseError('当前不在房间内');
         }
 
-        $list = GameRoomMember::make()->getMemberList($currentRoom);
-        return $this->responseData($list);
+        $rawList = GameRoomMember::make()->getMemberList($currentRoom);
+        $list = collect($rawList)->map(function ($item) {
+            return [
+                $item['username'],
+                $item['matrix'],
+                $item['block_index'],
+                $item['points'],
+                $item['clear_lines'],
+                $item['speed_run'],
+                $item['discharge_buffers'],
+                $item['fill_buffers'],
+                $item['is_owner'],
+                $item['is_ready'],
+                $item['is_over'],
+                $item['is_online'],
+                $item['is_quit'],
+                $item['cur'],
+                $item['team'],
+                $item['over_time'],
+            ];
+        })->toArray();
+        return $this->responseData($list, true);
     }
 
     /**
@@ -356,12 +376,28 @@ class GameController extends BaseNamespace
      * 游戏中的数据上报
      *
      * @Event("game-data-report")
-     * @return string $data
+     * @return mixed $rawData
      */
-    public function gameDataReport(Socket $socket, array $data)
+    public function gameDataReport(Socket $socket, $rawData)
     {
         $fd = (string) $socket->getFd();
         $username = SocketMember::make()->getUserName($fd);
+
+        $data = json_decode(gzuncompress(base64_decode($rawData)));
+
+        $data = [
+            'points'            => $data[0],
+            'is_owner'          => $data[1],
+            'is_ready'          => $data[2],
+            'is_over'           => $data[3],
+            'block_index'       => $data[4],
+            'cur'               => $data[5],
+            'speed_run'         => $data[6],
+            'clear_lines'       => $data[7],
+            'matrix'            => $data[8],
+            'discharge_buffers' => $data[9],
+            'fill_buffers'      => $data[10],
+        ];
 
         // 获取当前所在房间
         $roomMemberSrv = GameRoomMember::make();

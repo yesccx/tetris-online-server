@@ -30,11 +30,13 @@ trait WebsocketResponse
      * 响应-数据
      *
      * @param mixed $data
+     * @param bool $gzip
      * @return array
      */
-    protected function responseData($data = [])
+    protected function responseData($data = [], bool $gzip = false)
     {
-        return $this->buildResponseData(1, '成功', $data);
+        $responseData = $this->buildResponseData(1, '成功', $data);
+        return $gzip ? base64_encode(gzcompress(json_encode($responseData), 9)) : $responseData;
     }
 
     /**
