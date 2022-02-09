@@ -36,7 +36,7 @@ trait WebsocketResponse
     protected function responseData($data = [], bool $gzip = false)
     {
         $responseData = $this->buildResponseData(1, '成功', $data);
-        return $gzip ? base64_encode(gzcompress(json_encode($responseData), 9)) : $responseData;
+        return $gzip ? dataCompress($responseData) : $responseData;
     }
 
     /**

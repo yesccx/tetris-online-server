@@ -83,7 +83,17 @@ class GameController extends BaseNamespace
     public function roomList(Socket $socket)
     {
         $list = GameRoom::make()->getList();
-        return $this->responseData($list);
+        $list = collect($list)->map(function ($item) {
+            return collect($item)->only([
+                'title',
+                'number',
+                'status',
+                'format_number',
+                'current_count',
+                'max_count',
+            ]);
+        })->toArray();
+        return $this->responseData($list, true);
     }
 
     /**
@@ -113,10 +123,30 @@ class GameController extends BaseNamespace
         // 当前玩家信息
         $info['userinfo'] = GameRoomMember::make()->getMemberInfo($info['number'], $username);
 
+        // 上次游戏的数据还没重置时，尝试重置
+        if ($info['status'] == 0 && !empty($info['userinfo']) && $info['userinfo']['over_time'] > 0) {
+            $info['userinfo'] = GameRoomMember::make()->rememberInfo($currentRoom, $username, function ($info) {
+                if (!$info['is_owner']) {
+                    $info['is_ready'] = 0;
+                }
+                $info['is_over'] = 0;
+                $info['is_online'] = 1;
+                $info['points'] = 0;
+                $info['block_index'] = 0;
+                $info['clear_lines'] = 0;
+                $info['cur'] = null;
+                $info['matrix'] = null;
+                $info['discharge_buffers'] = 0;
+                $info['fill_buffers'] = 0;
+                $info['over_time'] = 0;
+                return $info;
+            });
+        }
+
         // 房间成员(玩家)
         $info['members'] = GameRoomMember::make()->getMemberList($info['number']);
 
-        return $this->responseData($info);
+        return $this->responseData($info, true);
     }
 
     /**
@@ -346,13 +376,13 @@ class GameController extends BaseNamespace
             }
         }
 
-        // 预告生成方块集
+        // 预告生成方块集(只需生成1部分，之后的部分都是重复的)
         $blocks = [];
         $blockMap = [
             1 => 'I', 2 => 'L', 3 => 'J',
             4 => 'Z', 5 => 'S', 6 => 'O', 7 => 'T',
         ];
-        for ($i = 1; $i <= 10000; $i++) {
+        for ($i = 1; $i <= 1000; $i++) {
             $blocks[] = $blockMap[rand(1, 7)];
         }
         $gameRoomSrv->updateBlocks($currentRoom, $blocks);
@@ -367,7 +397,9 @@ class GameController extends BaseNamespace
         $socketIO = di()->get(\Hyperf\SocketIOServer\SocketIO::class);
 
         // 通知用户游戏开始
-        $socketIO->of('/game')->to($currentRoom)->emit('game-start', $roomInfo);
+        $socketIO->of('/game')->to($currentRoom)->emit('game-start',
+            dataCompress($roomInfo)
+        );
 
         return $this->responseSuccess();
     }
@@ -383,7 +415,7 @@ class GameController extends BaseNamespace
         $fd = (string) $socket->getFd();
         $username = SocketMember::make()->getUserName($fd);
 
-        $data = json_decode(gzuncompress(base64_decode($rawData)));
+        $data = dataUncompress($rawData);
 
         $data = [
             'points'            => $data[0],

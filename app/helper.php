@@ -118,3 +118,34 @@ function parse_ids($ids): array
 {
     return array_unique(explode(',', trim($ids)));
 }
+
+/**
+ * 数据压缩
+ *
+ * @param mixed $rawData
+ * @param int $level 压缩级别
+ * @return string|mixed
+ */
+function dataCompress($rawData, int $level = 9)
+{
+    try {
+        return base64_encode(gzcompress(json_encode($rawData), $level));
+    } catch (Throwable $e) {
+        return $rawData;
+    }
+}
+
+/**
+ * 数据解压缩
+ *
+ * @param string $rawData
+ * @return mixed
+ */
+function dataUncompress(string $data)
+{
+    try {
+        return json_decode(gzuncompress(base64_decode($data)), true);
+    } catch (Throwable $e) {
+        return $data;
+    }
+}

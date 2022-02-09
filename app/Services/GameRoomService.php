@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Cache\GameRoom;
 use App\Cache\GameRoomMember;
 use Hyperf\AsyncQueue\Annotation\AsyncQueueMessage;
+use Hyperf\Utils\Coroutine\Concurrent;
 
 /**
  * 游戏房间相关
@@ -83,7 +84,9 @@ class GameRoomService
 
                 // 游戏结束
                 if ($gameOver) {
-                    GameRoom::make()->gameOver($roomNumber);
+                    (new Concurrent(1))->create(function () use ($roomNumber) {
+                        GameRoom::make()->gameOver($roomNumber);
+                    });
                 }
             }
         } catch (\Throwable$e) {}
