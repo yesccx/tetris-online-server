@@ -41,6 +41,11 @@ class GameRoom extends HashRedis
     public function updateStatus(string $roomNumber, int $status = 0)
     {
         return $this->rememberInfo($roomNumber, function ($info) use ($status) {
+            if ($status == 1) {
+                $info['start_time'] = time();
+            } else {
+                $info['start_time'] = 0;
+            }
             $info['status'] = $status;
             return $info;
         });
@@ -191,15 +196,19 @@ class GameRoom extends HashRedis
         // 生成结算信息
         $members = $roomMemberSrv->getMemberList($roomNumber);
         $members = collect($members);
-        $settlementData = $members->map(function ($member) {
+        $settlementData = $members->map(function ($member) use ($room) {
+            $overTime = $member['over_time'] ?: intval(microtime(true) * 10000);
             return [
                 'username'          => $member['username'],
                 'team'              => $member['team'],
-                'over_time'         => $member['over_time'] ?: intval(microtime(true) * 10000),
+                'is_over'           => $member['is_over'],
+                'over_time'         => $overTime,
                 'points'            => $member['points'],
                 'block_index'       => $member['block_index'],
                 'clear_lines'       => $member['clear_lines'],
                 'discharge_buffers' => $member['discharge_buffers'],
+                'duration_time'     => $member['is_over'] ? intval($overTime / 10000 - $room['start_time']) . '秒' : '-',
+                'speed_run'         => $member['speed_run'],
             ];
         })->sortByDesc('over_time')->values()->toArray();
 
@@ -221,6 +230,7 @@ class GameRoom extends HashRedis
                     $info['discharge_buffers'] = 0;
                     $info['fill_buffers'] = 0;
                     $info['over_time'] = 0;
+                    $info['speed_run'] = 1;
                     return $info;
                 });
             }

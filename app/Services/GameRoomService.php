@@ -61,9 +61,18 @@ class GameRoomService
                 return true;
             }
 
-            // 尝试判定游戏是否结束
             $members = GameRoomMember::make()->getMemberList($roomNumber);
-            if (!empty($members)) {
+            if (empty($members)) {
+                return true;
+            }
+
+            // 尝试判定游戏是否结束
+            $gameOver = false;
+            if ($room['mode'] == 1) {
+                $gameOver = collect($members)->every(function ($member) {
+                    return $member['is_over'] || $member['is_quit'] || !$member['is_online'];
+                });
+            } else {
                 $teamMembers = collect($members)->groupBy('team');
 
                 // 单人游戏和多人游戏判断方式不同
@@ -81,13 +90,13 @@ class GameRoomService
                         return !$member['is_online'];
                     });
                 }
+            }
 
-                // 游戏结束
-                if ($gameOver) {
-                    (new Concurrent(1))->create(function () use ($roomNumber) {
-                        GameRoom::make()->gameOver($roomNumber);
-                    });
-                }
+            // 游戏结束
+            if ($gameOver) {
+                (new Concurrent(1))->create(function () use ($roomNumber) {
+                    GameRoom::make()->gameOver($roomNumber);
+                });
             }
         } catch (\Throwable$e) {}
     }

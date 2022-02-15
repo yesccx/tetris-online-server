@@ -68,6 +68,7 @@ class GameController extends BaseNamespace
             'speed_start'   => 1,
             'mode'          => 2,
             'start_lines'   => 0,
+            'start_time'    => 0,
         ];
         GameRoom::make()->create($roomNumber, $username, $roomInfo);
 
